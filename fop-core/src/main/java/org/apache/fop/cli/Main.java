@@ -24,15 +24,31 @@ import java.io.FileFilter;
 import java.io.OutputStream;
 import java.lang.reflect.Method;
 import java.net.MalformedURLException;
+import java.net.URI;
 import java.net.URL;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
 import java.util.List;
+import java.util.Scanner;
+
 
 import org.apache.commons.io.IOUtils;
+import org.apache.commons.io.*;
 
-import org.apache.fop.apps.FOUserAgent;
-import org.apache.fop.apps.MimeConstants;
+import org.apache.fop.apps.*;
+
+import org.apache.avalon.framework.configuration.Configuration;
+import org.apache.avalon.framework.configuration.DefaultConfigurationBuilder;
+
+import javax.xml.transform.Result;
+import javax.xml.transform.Source;
+import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.sax.SAXResult;
+import javax.xml.transform.stream.StreamSource;
+
+import java.io.BufferedReader;
+import java.io.FileReader;
 
 /**
  * Main command-line class for Apache FOP.
@@ -208,16 +224,141 @@ public final class Main {
         }
     }
 
+
+    public static int xml2pdf(String listaDir, String outPath, String lista) {
+        URI baseURI = new File(".").getAbsoluteFile().toURI();
+        int numberOfFiles = 0; 
+        try {
+            System.out.println("FOP ExampleXML2PDF\n");
+            System.out.println("Preparing...");
+
+            // Setup directories
+            File baseDir = new File(listaDir);
+            File outDir = new File(outPath, "out");
+            outDir.mkdirs();
+
+            // configure fopFactory as desired
+            FopFactory fopFactory;
+            FopFactoryBuilder fopFactoryBuilder;
+
+            fopFactoryBuilder = new FopFactoryBuilder(baseURI);
+
+            FileReader arq = new FileReader(lista);
+            BufferedReader lerArq = new BufferedReader(arq);
+            String xml;
+            String config;
+            String xsl; 
+            int i = 0;
+
+            config = lerArq.readLine();
+
+            //o arquivo de configuração é setado neste trecho
+            DefaultConfigurationBuilder cfgBuilder = new DefaultConfigurationBuilder();
+            Configuration cfg = cfgBuilder.buildFromFile(new File(config));
+            fopFactoryBuilder.setConfiguration(cfg);
+
+            fopFactoryBuilder.setStrictFOValidation(true);
+            fopFactoryBuilder.setTargetResolution(FopFactoryConfig.DEFAULT_TARGET_RESOLUTION);
+            fopFactoryBuilder.setComplexScriptFeatures(false);
+            fopFactory = fopFactoryBuilder.build();
+
+            xsl = lerArq.readLine();
+
+            System.out.println("Config file: " + config);
+            System.out.println("xslt file  : " + xsl);
+
+            do {
+                xml = lerArq.readLine();
+                if(xml == null){
+                    break;
+                }
+                String ext1 = FilenameUtils.getExtension(xml);
+                if(!ext1.equals("xml")){
+                    //System.out.printf("%s não eh a extensão que queremos!",ext1);
+                    break;
+                }
+                
+                String s = "result"+i+".pdf";
+                i++;
+                // Setup input and output files
+                File xmlfile = new File(baseDir, xml);
+                File xsltfile = new File(baseDir, xsl);
+                File pdffile = new File(outDir, s);
+                //System.out.println("Input: XML (" + xmlfile.getName() + ")");
+                //System.out.println("Stylesheet: " + xsltfile.getName());
+                //System.out.println("Output: PDF (" + pdffile + ")");
+                //System.out.println();
+                //System.out.println("Transforming...");
+                FOUserAgent foUserAgent = fopFactory.newFOUserAgent();
+
+                // configure foUserAgent as desired
+                // Setup output
+                OutputStream out = new java.io.FileOutputStream(pdffile);
+                out = new java.io.BufferedOutputStream(out);
+                try {
+                    // Construct fop with desired output format
+                    Fop fop = fopFactory.newFop(MimeConstants.MIME_PDF, foUserAgent, out);
+                    // Setup XSLT
+                    TransformerFactory factory = TransformerFactory.newInstance();
+                    Transformer transformer = factory.newTransformer(new StreamSource(xsltfile));
+                    // Set the value of a <param> in the stylesheet
+                    transformer.setParameter("versionParam", "2.0");
+                    // Setup input for XSLT transformation
+                    Source src = new StreamSource(xmlfile);
+                    // Resulting SAX events (the generated FO) must be piped through to FOP
+                    Result res = new SAXResult(fop.getDefaultHandler());
+                    // Start XSLT transformation and FOP processing
+                    transformer.transform(src, res);
+
+                } finally {
+                    out.close();
+                }
+                System.out.println("Success!");
+                numberOfFiles++;
+            }while(true);
+            arq.close();
+        } catch (Exception e) {
+            e.printStackTrace(System.err);
+            System.exit(-1);
+        }
+        return numberOfFiles;
+    }
+
     /**
      * The main routine for the command line interface
      * @param args the command line parameters
      */
-    public static void main(String[] args) {
+    public static void main(String args[]) {
+        Scanner ler = new Scanner(System.in);
+        //String config = ler.nextLine("Qual o arquivo de configuração?");
+        String listaDir = args[0];
+        String outDir = args[1];
+        String lista = args[2];
+        //System.out.println("List dir: " + listaDir);
+        //System.out.println("List    : " + lista);
+
+        final long startTime = System.currentTimeMillis();
+
+        int arqNum = xml2pdf(listaDir,outDir,lista);
+
+        final long duration = System.currentTimeMillis() - startTime;
+        float durationSec = (float) duration/1000;
+        float eachSec = 0;
+        if(arqNum != 0)
+            eachSec = duration/arqNum;
+        else{
+            System.out.printf("Nenhum arquivo válido foi inserido como input!");
+        }
+            
+        System.out.println("\nRendered " + arqNum + " files" );
+        System.out.printf("Time (Total): %.3f s, (%d ms)\n",durationSec,duration );
+        System.out.printf("Time (Each) : %.3f s, (%.0f ms)\n",eachSec/1000, eachSec);
+        /*
         if (checkDependencies()) {
             startFOP(args);
         } else {
             startFOPWithDynamicClasspath(args);
-        }
+        }*/
     }
 
 }
